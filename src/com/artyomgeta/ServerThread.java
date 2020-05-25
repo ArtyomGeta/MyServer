@@ -1,12 +1,10 @@
 package com.artyomgeta;
 
-import javax.swing.*;
-import java.awt.*;
 import java.io.*;
 import java.net.Socket;
 import java.util.InputMismatchException;
 
-@SuppressWarnings("SwitchStatementWithoutDefaultBranch")
+@SuppressWarnings({"SwitchStatementWithoutDefaultBranch", "EnhancedSwitchMigration"})
 public class ServerThread extends Thread {
     private final Socket socket;
     InputStream input;
@@ -16,14 +14,15 @@ public class ServerThread extends Thread {
     private int id = 0;
     private static final int RIGHTS_USER = 0;
     private static final int RIGHTS_ADMIN = 1;
-    int rights = RIGHTS_USER;
+    private static final int RIGHTS_DEFAULT = 2;
+    int rights = RIGHTS_DEFAULT;
     int userId;
-    GUI gui;
+    ServerInterface serverInterface;
 
-    public ServerThread(Socket socket, int id, GUI gui) {
+    public ServerThread(Socket socket, int id, ServerInterface serverInterface) {
         this.socket = socket;
         this.id = id;
-        this.gui = gui;
+        this.serverInterface = serverInterface;
     }
 
     @SuppressWarnings("EnhancedSwitchMigration")
@@ -53,7 +52,7 @@ public class ServerThread extends Thread {
                             if (userId == RunnableClass.adminIDs[i]) {
                                 rights = RIGHTS_ADMIN;
                                 System.out.println(socket.getInetAddress().getHostName() + " registered as admin");
-                                gui.printToConsole(socket.getInetAddress().getHostName() + " registered as admin");
+                                serverInterface.printToConsole(socket.getInetAddress().getHostName() + " registered as admin");
                                 writer.println("You have authorized as admin.\nYour available commands:\n\t- exit\n\t- users\n\t- report");
                                 RunnableClass.authorizedAdmins.add(this);
                                 RunnableClass.usedAdminsIDs.add(userId);
@@ -64,6 +63,7 @@ public class ServerThread extends Thread {
                             }
                         }
                     } else {
+                        rights = RIGHTS_USER;
                         writer.println("You have authorized as client.");
                         writer.println("Your available commands:\n\t- exit\n\t- report\n\t- users");
                         break;
@@ -116,7 +116,7 @@ public class ServerThread extends Thread {
                                                         writer.println("Enter the reason to kick: \n\t- 0 (Without reason)\n\t - 1 (Violation of the rules)");
                                                         int result1 = Integer.parseInt(reader.readLine());
                                                         if (result1 == 0 || result1 == 1) {
-                                                            writer.println(RunnableClass.command("kick " + selectedUser + " " + result1 + " " + getSocketName()));
+                                                            writer.println(RunnableClass.command("kick " + selectedUser + " " + result1 + " " + getUserId()));
                                                         } else {
                                                             writer.println("Invalid value");
                                                         }
@@ -165,7 +165,7 @@ public class ServerThread extends Thread {
                 //sRunnableClass.usersList.remove(id);
             } catch (IOException ex) {
                 System.out.println("Server exception: " + ex.getMessage());
-                gui.printToConsole("Server exception: " + ex.getMessage());
+                serverInterface.printToConsole("Server exception: " + ex.getMessage());
                 ex.printStackTrace();
             }
         } catch (NullPointerException | IndexOutOfBoundsException exception) {
@@ -189,7 +189,7 @@ public class ServerThread extends Thread {
     public void kickMe(int cause) {
         try {
             writer.println("You have benn kicked from server. Cause: " + cause);
-            gui.printToConsole("Disconnected: " + socket.getInetAddress().getHostName());
+            serverInterface.printToConsole("Disconnected: " + socket.getInetAddress().getHostName());
             System.out.println("Disconnected: " + socket.getInetAddress().getHostName());
             RunnableClass.usersList.remove(this);
             writer.flush();
@@ -198,7 +198,6 @@ public class ServerThread extends Thread {
             output.close();
             writer.close();
             reader.close();
-            interrupt();
             stop();
         } catch (IOException e) {
             e.printStackTrace();
@@ -209,8 +208,17 @@ public class ServerThread extends Thread {
         return id;
     }
 
-    public boolean isAdmin() {
-        return rights == RIGHTS_ADMIN;
+    public String getRole() {
+        switch (rights) {
+            case RIGHTS_ADMIN:
+                return "(Administrator)";
+            case RIGHTS_DEFAULT:
+                return "(Not authorized)";
+            case RIGHTS_USER:
+                return "";
+            default:
+                return "[An error has occurred]".toUpperCase();
+        }
     }
 
 }

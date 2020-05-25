@@ -1,5 +1,8 @@
 package com.artyomgeta;
 
+import org.json.JSONArray;
+import org.json.JSONException;
+
 import java.awt.*;
 import java.io.*;
 import java.net.ServerSocket;
@@ -16,10 +19,12 @@ public class RunnableClass implements java.lang.Runnable {
     public static List<String> authorizedClients = new ArrayList<>();
     public static List<Integer> usedAdminsIDs = new ArrayList<>();
     public static Random random = new Random();
-    public static GUI gui = new GUI();
+    public static ServerInterface serverInterface = new ServerInterface();
     public static final int[] adminIDs = new int[]{666, 777, 888};
     public static String input = "console";
     public static boolean workingCommand = false;
+
+    private static final FileWriter[] fileWriters = new FileWriter[returnAllUsers()];
 
     public static final int WAITING_FOR_START_OR_HELP = 0;
     public static final int WAITING_FOR_MAJOR = 1;
@@ -35,7 +40,7 @@ public class RunnableClass implements java.lang.Runnable {
     public static void main(String[] args) throws Exception {
         input = args[0];
         System.out.println(input);
-        gui.run();
+        serverInterface.run();
         catchStartingCommands();
     }
 
@@ -63,7 +68,7 @@ public class RunnableClass implements java.lang.Runnable {
                     //assert reader != null;
                     //reader.close();
                     System.out.println("Client " + csocket.getLocalAddress().getHostName() + " has disconnected");
-                    gui.printToConsole("Client " + csocket.getLocalAddress().getHostName() + " has disconnected");
+                    serverInterface.printToConsole("Client " + csocket.getLocalAddress().getHostName() + " has disconnected");
                     usersList.remove(usersList.size() - 1);
                     break;
                 }
@@ -77,9 +82,9 @@ public class RunnableClass implements java.lang.Runnable {
         System.out.println("Commands: ");
         System.out.println("\thelp");
         System.out.println("\tstart");
-        gui.printToConsole("Commands: ");
-        gui.printToConsole("\t- help");
-        gui.printToConsole("\t- start");
+        serverInterface.printToConsole("Commands: ");
+        serverInterface.printToConsole("\t- help");
+        serverInterface.printToConsole("\t- start");
     }
 
     private static void processUsers() {
@@ -91,12 +96,12 @@ public class RunnableClass implements java.lang.Runnable {
                     if (thread.getSocketName().equals(RunnableClass.authorizedAdmins.get(j).getSocketName()))
                         admin = true;
                 }
-                System.out.println("\t" + length + ": " + thread.getSocketName() + (admin ? " (Administrator)" : ""));
-                gui.printToConsole("\t" + length + ": " + thread.getSocketName() + (admin ? " (Administrator)" : ""));
+                System.out.println("\t" + length + ": " + thread.getSocketName() + "(" + thread.getRole() + ")");
+                serverInterface.printToConsole("\t" + length + ": " + thread.getSocketName() + "(" + thread.getRole() + ")");
                 length++;
             }
             System.out.println("\tChoose user");
-            gui.printToConsole("\tChoose user");
+            serverInterface.printToConsole("\tChoose user");
             serverState = WAITING_FOR_USER_ID;
 //            int selectedUser;
 //            try {
@@ -149,7 +154,7 @@ public class RunnableClass implements java.lang.Runnable {
 //            }
         } else {
             System.out.println("No users connected");
-            gui.printToConsole("No users connected");
+            serverInterface.printToConsole("No users connected");
             serverState = WAITING_FOR_MAJOR;
         }
     }
@@ -159,7 +164,7 @@ public class RunnableClass implements java.lang.Runnable {
         ServerSocket ssock = new ServerSocket(1234);
         AtomicReference<Robot> robot = null;
         System.out.println("Listening");
-        gui.printToConsole("Listening");
+        serverInterface.printToConsole("Listening");
         BufferedReader inFromClient;
         DataOutputStream outToClient;
         String clientSentence;
@@ -175,19 +180,24 @@ public class RunnableClass implements java.lang.Runnable {
 
         while (true) {
             Socket sock = ssock.accept();
-            ServerThread serverThread = new ServerThread(sock, usersList.size(), gui);
-            System.out.println("Connected: " + sock.getInetAddress().getHostName());
-            gui.printToConsole("Connected: " + sock.getInetAddress().getHostName());
-            inFromClient = new BufferedReader(new InputStreamReader(sock.getInputStream()));
-            outToClient = new DataOutputStream(sock.getOutputStream());
+            if (!inBanList(usersList.size())) {
+                ServerThread serverThread = new ServerThread(sock, usersList.size(), serverInterface);
+                System.out.println("Connected: " + sock.getInetAddress().getHostName());
+                serverInterface.printToConsole("Connected: " + sock.getInetAddress().getHostName());
+                inFromClient = new BufferedReader(new InputStreamReader(sock.getInputStream()));
+                outToClient = new DataOutputStream(sock.getOutputStream());
 //            clientSentence = inFromClient.readLine();
 //            capitalizedSentence = clientSentence.toUpperCase() + '\n';
 //            outToClient.writeBytes(capitalizedSentence);
 //            System.out.println(sock.getInetAddress().toString() + ": " + clientSentence);
-            usersList.add(serverThread);
-            int user = usersList.size() - 1;
-            usersList.get(user).start();
-            gui.updateUsers(usersList);
+                usersList.add(serverThread);
+                int user = usersList.size() - 1;
+                usersList.get(user).start();
+                serverInterface.updateUsers(usersList);
+            } else {
+                new DataOutputStream(sock.getOutputStream()).writeBytes("You are banned.\n");
+                sock.close();
+            }
         }
     }
 
@@ -195,18 +205,17 @@ public class RunnableClass implements java.lang.Runnable {
         for (ServerThread serverThread : usersList) {
             serverThread.kickMe(1);
         }
-        gui.printToConsole("Stopped");
+        serverInterface.printToConsole("Stopped");
     }
 
     private static void processUserId(int userId) {
         serverState = WAITING_FOR_USER_COMMANDS;
-        gui.printToConsole("Selected user: " + userId);
+        serverInterface.printToConsole("Selected user: " + userId);
     }
 
     private static void processCommand(String command) throws IOException {
         final String COMMAND_HELP = "HELP";
         final String COMMAND_START = "START";
-        System.out.println(command);
         if (serverState == WAITING_FOR_START_OR_HELP) {
             switch (command.toUpperCase()) {
                 case COMMAND_HELP:
@@ -217,7 +226,7 @@ public class RunnableClass implements java.lang.Runnable {
                     break;
                 default:
                     System.out.println("Unexpected command.");
-                    gui.printToConsole("Unexpected command");
+                    serverInterface.printToConsole("Unexpected command");
             }
         } else if (serverState == WAITING_FOR_MAJOR) {
             switch (command.toUpperCase()) {
@@ -228,21 +237,21 @@ public class RunnableClass implements java.lang.Runnable {
                     processUsers();
                     break;
                 case "LIST":
-                    gui.printToConsole("List");
+                    serverInterface.printToConsole("List");
                     break;
                 case "STOP":
-                    gui.printToConsole("Stop");
+                    serverInterface.printToConsole("Stop");
                     processStop();
                     break;
                 default:
                     System.out.println("Unexpected command.");
-                    gui.printToConsole("Unexpected command");
+                    serverInterface.printToConsole("Unexpected command");
             }
         } else if (serverState == WAITING_FOR_USER_ID) {
             try {
                 processUserId(Integer.parseInt(command));
             } catch (NumberFormatException e) {
-                gui.printToConsole("Invalid value");
+                serverInterface.printToConsole("Invalid value");
             }
         }
 
@@ -303,7 +312,6 @@ public class RunnableClass implements java.lang.Runnable {
         }
     }
 
-    @SuppressWarnings("EnhancedSwitchMigration")
     public static void catchStartingCommands() throws IOException {
         Scanner startedCommandScanner = new Scanner(System.in);
         String command = "";
@@ -312,7 +320,7 @@ public class RunnableClass implements java.lang.Runnable {
         do {
             //System.out.println("Enter command: ");
             if (showEnterCommand) {
-                gui.printToConsole("Enter command: ");
+                serverInterface.printToConsole("Enter command: ");
                 showEnterCommand = false;
             }
 //            if (!stackToClient())
@@ -322,7 +330,7 @@ public class RunnableClass implements java.lang.Runnable {
             if (workingCommand) {
                 showEnterCommand = true;
                 workingCommand = false;
-                command = gui.commandField.getText();
+                command = serverInterface.commandField.getText();
                 processCommand(command);
             }
         } while (!command.toUpperCase().equals("EXIT"));
@@ -330,10 +338,11 @@ public class RunnableClass implements java.lang.Runnable {
     }
 
     public static String writeToServer(String address, String message) {
-        gui.printToConsole(address + ": " + message);
+        serverInterface.printToConsole(address + ": " + message);
         System.out.println(address + ": " + message);
         return "Your message has arrived to server";
     }
+
 
     public static void writeToClient(int id, String message) {
         usersList.get(id).printMessage(message);
@@ -347,15 +356,24 @@ public class RunnableClass implements java.lang.Runnable {
         String author = parser[3];
         switch (todo) {
             case "kick":
-                //if (Integer.parseInt(client) != authorizedAdmins.get(Integer.parseInt(client)).getSocketName())
-                usersList.get(Integer.parseInt(client)).kickMe(Integer.parseInt(argument));
-                System.out.println("Admin has kicked " + client + " with reason: " + argument);
-                gui.printToConsole("Admin has kicked " + client + " with reason: " + argument);
-                return "User " + client + " has been kicked by " + author;
+                if (!author.equals(client)) {
+                    for (ServerThread serverThread : authorizedAdmins) {
+                        if (!client.equals(String.valueOf(serverThread.getUserId()))) {
+                            new Thread(() -> usersList.get(Integer.parseInt(client)).kickMe(Integer.parseInt(argument))).start();
+                            System.out.println("Admin " + client + " has kicked " + client + " with reason: " + argument);
+                            serverInterface.printToConsole("Admin has kicked " + client + " with reason: " + argument);
+                            return "User " + client + " has been kicked by " + author;
+                        } else {
+                            return "Error: you can't kick other admin";
+                        }
+                    }
+                } else {
+                    return "That's funny, but you can't kick yourself)";
+                }
             case "write":
                 writeToClient(Integer.parseInt(client), "Message from " + author + ": " + argument.replace("%32", " "));
                 System.out.println("Admin " + author + " has write a message: \"" + argument.replace("%32", " ") + "\" to user " + usersList.get(Integer.parseInt(client)).getSocketName());
-                gui.printToConsole("Admin " + author + " has write a message: \"" + argument.replace("%32", " ") + "\" to user " + usersList.get(Integer.parseInt(client)).getSocketName());
+                serverInterface.printToConsole("Admin " + author + " has write a message: \"" + argument.replace("%32", " ") + "\" to user " + usersList.get(Integer.parseInt(client)).getSocketName());
                 return "Your message has arrived";
             default:
                 return "An error has occurred";
@@ -380,6 +398,82 @@ public class RunnableClass implements java.lang.Runnable {
             }
             return scanner.nextLine();
         } else return null;
+    }
+
+    protected static ServerThread getClientBy(int by, String argument) {
+        for (ServerThread serverThread : usersList) {
+            switch (by) {
+                case 0:
+                    if (Integer.parseInt(argument) == serverThread.getUserId()) return serverThread;
+                case 1:
+                    if (argument.equals(serverThread.getSocketName())) return serverThread;
+                default:
+                    return null;
+            }
+        }
+        return null;
+    }
+
+    public static String returnDialog(int user, int dialog) {
+        StringBuilder returnable = new StringBuilder();
+        StringBuilder stringBuilder = new StringBuilder();
+        try {
+            Scanner myReader = new Scanner(new File("users/" + user + "/dialog.json"));
+            while (myReader.hasNextLine()) {
+                String data = myReader.nextLine();
+                stringBuilder.append(data);
+            }
+            if (dialog == -1) dialog = 0;
+            myReader.close();
+        } catch (FileNotFoundException e) {
+            e.printStackTrace();
+        }
+        try {
+            JSONArray jsonArray = new JSONArray(stringBuilder.toString()).getJSONArray(dialog);
+            for (int i = 0; i < jsonArray.length(); i++) {
+                returnable.append(jsonArray.getJSONObject(i).getInt("author")).append(": ").append(jsonArray.getJSONObject(i).getString("text")).append("\n");
+            }
+        } catch (JSONException e) {
+            e.printStackTrace();
+
+        }
+        return returnable.toString();
+    }
+
+    public static String[] returnDialogs() {
+        String[] returnable = new String[returnAllUsers()];
+        for (int i = 0; i < returnable.length; i++) {
+            returnable[i] = new File("users/" + i).getName();
+        }
+        return returnable;
+    }
+
+    public static int returnAllUsers() {
+        return Objects.requireNonNull(new File("users/").listFiles()).length;
+    }
+
+    public static boolean inBanList(int id) {
+        StringBuilder stringBuilder = new StringBuilder();
+        boolean returnable = false;
+        try {
+            Scanner myReader = new Scanner(new File("users/banlist.json"));
+            while (myReader.hasNextLine()) {
+                String data = myReader.nextLine();
+                stringBuilder.append(data);
+            }
+            myReader.close();
+        } catch (FileNotFoundException e) {
+            e.printStackTrace();
+        }
+        try {
+            JSONArray jsonArray = new JSONArray(stringBuilder.toString());
+            for (int i = 0; i < jsonArray.length(); i++) {
+                returnable = id == jsonArray.getJSONObject(i).getInt("id");
+            }
+        } catch (JSONException e) {
+            e.printStackTrace();
+        }
+        return returnable;
     }
 
 }
